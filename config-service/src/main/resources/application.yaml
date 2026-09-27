@@ -1,0 +1,22 @@
+server:
+  port: 5555
+
+spring:
+  application:
+    name: config-service
+
+  cloud:
+    config:
+      server:
+        git:
+          uri: https://github.com/namquoc130425/config-repository.git
+          default-label: main
+          username: ${GITHUB_USERNAME}
+          password: ${GITHUB_TOKEN}
+          force-pull: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
