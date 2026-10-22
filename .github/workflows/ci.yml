@@ -2,31 +2,68 @@ name: Microservices CI
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
   push:
-    branches:
-      - main
+    branches: [main]
+
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-and-test:
-    name: Build & Test
+  build:
+    name: Build ${{ matrix.service }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - service-discovery
+          - config-service
+          - user-service
+          - api-gateway
+          - nesus-repository
+        include:
+          - service: nesus-repository
+            wrapper: security-starter/mvnw
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
           cache: maven
+          cache-dependency-path: |
+            ${{ matrix.service }}/**/pom.xml
+            ${{ matrix.service }}/**/maven-wrapper.properties
 
-      - name: Build and run tests
-        run: mvn -B clean verify
+      - name: Verify ${{ matrix.service }}
+        working-directory: ${{ matrix.service }}
+        run: bash "${{ matrix.wrapper || 'mvnw' }}" -B -ntp clean verify
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.service }}
+          path: ${{ matrix.service }}/**/target/surefire-reports/**
+          if-no-files-found: ignore
+
+  build-and-test:
+    name: Build & Test
+    if: ${{ always() }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every build to succeed
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: test "$BUILD_RESULT" = success
