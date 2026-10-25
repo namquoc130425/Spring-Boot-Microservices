@@ -2,6 +2,7 @@ package com.nvqn.security_starter.autoConfig;
 
 
 
+import jakarta.servlet.DispatcherType;
 import tools.jackson.databind.ObjectMapper;
 
 
@@ -60,6 +61,14 @@ import java.security.interfaces.RSAPublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 
+//Request tới service
+//        ↓
+//Bộ lọc security do Spring đăng ký
+//        ↓
+//Các bộ lọc trong SecurityFilterChain của bạn
+//        ↓
+//Nếu được phép mới tới Controller
+
 @AutoConfiguration
 @EnableWebSecurity
 @EnableConfigurationProperties(SecurityProperties.class)
@@ -99,6 +108,7 @@ public class SecurityAutoConfig {
     }
 
 
+
     @Bean
     @ConditionalOnMissingBean
     public CustomAuthenticationEntryPoint customAuthenticationEntryPoint(
@@ -115,7 +125,7 @@ public class SecurityAutoConfig {
     // =========================================================
 
     @Bean
-    @ConditionalOnMissingBean(SecurityFilterChain.class)
+    @ConditionalOnMissingBean(SecurityFilterChain.class)   // các  bộ lọc và quy tắc bảo vệ request
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
 
@@ -129,52 +139,47 @@ public class SecurityAutoConfig {
 
         List<String> publicEndpoints =
                 securityProperties.getPublicEndpoints();
-
         http
                 .csrf(AbstractHttpConfigurer::disable)
 
-                .httpBasic(
-                        AbstractHttpConfigurer::disable
-                )
+                .httpBasic(AbstractHttpConfigurer::disable)
 
-                .formLogin(
-                        AbstractHttpConfigurer::disable
-                )
+                .formLogin(AbstractHttpConfigurer::disable)
 
                 .exceptionHandling(exception -> exception
 
-                        .authenticationEntryPoint(
-                                authenticationEntryPoint
-                        )
+                        .authenticationEntryPoint(authenticationEntryPoint)
 
-                        .accessDeniedHandler(
-                                accessDeniedHandler
-                        )
-                )
+                        .accessDeniedHandler(accessDeniedHandler))
 
                 .authorizeHttpRequests(auth -> auth
+                         // lỗi bỏ qua trả đúng lỗi
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
 
-                        // PUBLIC API
-                        .requestMatchers(
-                                publicEndpoints.toArray(
-                                        new String[0]
-                                )
-                        )
-                        .permitAll()
+                        //kiểm tra phải public endpoints không
+                        .requestMatchers(publicEndpoints.toArray(new String[0])).permitAll()
 
-                        // PRIVATE API
-                        .anyRequest()
-                        .authenticated()
+                        // nếu privated thì kiểm tra đã hợp lệ hay chưa nếu chưa thì bị chặn và sử lý loi xác thực và nếu rồi thì vào controller
+                        .anyRequest().authenticated()
                 )
+
+
+               /**
+                *  // khi 1 request vào sẻ nhảy vào đây bước 1 - đọc token
+                   .oauth2ResourceServer(...).jwt(...)
+                    ↓ đăng ký bộ lọc khi khởi tạo
+         Spring: BearerTokenAuthenticationFilter.doFilterInternal()
+                    ↓ khi request tới
+         Spring đọc Authorization và lấy token
+
+               *  hãy bảo về Api bằng bear token dạng iwt
+               *  Spring thêm bộ lọc BearTokenAuthenticationFitler . bộ lọc này mặc định đọc token từ header Authozization theo dạng bear
+                **/
+
 
                 .oauth2ResourceServer(oauth2 -> oauth2
 
-                        .jwt(jwt -> jwt
-
-                                .jwtAuthenticationConverter(
-                                        jwtAuthenticationConverter
-                                )
-                        )
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter))
 
                         /*
                          * Quan trọng:
@@ -183,13 +188,9 @@ public class SecurityAutoConfig {
                          * Resource Server cũng dùng
                          * custom handlers này.
                          */
-                        .authenticationEntryPoint(
-                                authenticationEntryPoint
-                        )
+                        .authenticationEntryPoint(authenticationEntryPoint)
 
-                        .accessDeniedHandler(
-                                accessDeniedHandler
-                        )
+                        .accessDeniedHandler(accessDeniedHandler)
                 );
 
         return http.build();
@@ -198,7 +199,7 @@ public class SecurityAutoConfig {
 
     @Bean
     @ConditionalOnMissingBean(RSAPublicKey.class)
-    public RSAPublicKey jwtPublicKey() {
+    public RSAPublicKey jwtPublicKey() {            // tạo đối tượng public key dạng java
 
         String publicKey =
                 securityProperties.getPublicKey();
@@ -222,36 +223,18 @@ public class SecurityAutoConfig {
                                     "-----END PUBLIC KEY-----",
                                     ""
                             )
-                            .replaceAll(
-                                    "\\s",
-                                    ""
-                            );
+                            .replaceAll("\\s", "");
 
-            byte[] keyBytes =
-                    Base64.getDecoder()
-                            .decode(normalizedKey);
+            byte[] keyBytes = Base64.getDecoder().decode(normalizedKey);
 
-            X509EncodedKeySpec keySpec =
-                    new X509EncodedKeySpec(
-                            keyBytes
-                    );
+            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(keyBytes);
 
-            KeyFactory keyFactory =
-                    KeyFactory.getInstance(
-                            "RSA"
-                    );
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
 
-            return (RSAPublicKey)
-                    keyFactory.generatePublic(
-                            keySpec
-                    );
+            return (RSAPublicKey) keyFactory.generatePublic(keySpec);
 
         } catch (Exception e) {
-
-            throw new IllegalStateException(
-                    "Invalid app.security.public-key",
-                    e
-            );
+            throw new IllegalStateException("Invalid app.security.public-key", e);
         }
     }
 
@@ -262,35 +245,34 @@ public class SecurityAutoConfig {
     // NƠI VERIFY JWT
     // =========================================================
 
+    /**
+     * bước 2
+     sau khi đọc token sẻ chuyển sang decoder
+     Hàm này tạo decoder có ba phần:
+     - Public key và RS256 để kiểm tra chữ ký.
+     - issuerValidator kiểm tra issuer cùng các điều kiện thời gian mặc định.
+     - audienceValidator kiểm tra audience.
+     */
+
     @Bean
     @ConditionalOnMissingBean(JwtDecoder.class)
-    public JwtDecoder jwtDecoder(
+    public JwtDecoder jwtDecoder(              // đọc và kiểm tra jwt
             RSAPublicKey jwtPublicKey
     ) {
 
-        NimbusJwtDecoder decoder =
-                NimbusJwtDecoder
-                        .withPublicKey(
-                                jwtPublicKey
-                        )
-                        .signatureAlgorithm(
-                                SignatureAlgorithm.RS256
-                        )
-                        .build();
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(jwtPublicKey).signatureAlgorithm(SignatureAlgorithm.RS256).build();
 
-        String issuer =
-                securityProperties.getIssuer();
+        String issuer = securityProperties.getIssuer();
 
         if (issuer == null || issuer.isBlank()) {
 
-            throw new IllegalStateException(
-                    "Missing app.security.issuer"
-            );
+            throw new IllegalStateException("Missing app.security.issuer");
         }
 
         OAuth2TokenValidator<Jwt> issuerValidator = JwtValidators.createDefaultWithIssuer(issuer);
 
         List<String> requiredAudiences = securityProperties.getAudiences();
+
         if (requiredAudiences == null || requiredAudiences.isEmpty()) {
             throw new IllegalStateException("Missing app.security.audiences; audience validation is required");
         }
@@ -323,8 +305,7 @@ public class SecurityAutoConfig {
     @ConditionalOnMissingBean(AuthenticationManager.class)
     public AuthenticationManager authenticationManager(
 
-            ObjectProvider<UserDetailsService>
-                    userDetailsServiceProvider,
+            ObjectProvider<UserDetailsService> userDetailsServiceProvider,
 
             PasswordEncoder passwordEncoder,
 
@@ -342,22 +323,18 @@ public class SecurityAutoConfig {
         // USERNAME / PASSWORD
         // =====================================================
 
-        UserDetailsService userDetailsService =
-                userDetailsServiceProvider
-                        .getIfAvailable();
+        // khi có request đăng nhập DaoAuthenticationProvider dùng passwordEncoder để băm mật khẩu gửi từ request và so sánh với
+        // mật khẩu đẵ băm trong database
+
+        UserDetailsService userDetailsService = userDetailsServiceProvider.getIfAvailable();
 
         if (userDetailsService != null) {
 
-            DaoAuthenticationProvider daoProvider =
-                    new DaoAuthenticationProvider(userDetailsService);
+            DaoAuthenticationProvider daoProvider = new DaoAuthenticationProvider(userDetailsService);
 
-            daoProvider.setPasswordEncoder(
-                    passwordEncoder
-            );
+            daoProvider.setPasswordEncoder(passwordEncoder);
 
-            providers.add(
-                    daoProvider
-            );
+            providers.add(daoProvider);
         }
 
 
@@ -365,23 +342,14 @@ public class SecurityAutoConfig {
         // JWT
         // =====================================================
 
-        JwtAuthenticationProvider jwtProvider =
-                new JwtAuthenticationProvider(
-                        jwtDecoder
-                );
+        JwtAuthenticationProvider jwtProvider = new JwtAuthenticationProvider(jwtDecoder);
 
-        jwtProvider.setJwtAuthenticationConverter(
-                jwtAuthenticationConverter
-        );
+        jwtProvider.setJwtAuthenticationConverter(jwtAuthenticationConverter);
 
-        providers.add(
-                jwtProvider
-        );
+        providers.add(jwtProvider);
 
 
-        return new ProviderManager(
-                providers
-        );
+        return new ProviderManager(providers);
     }
 
 
@@ -393,9 +361,7 @@ public class SecurityAutoConfig {
     @ConditionalOnMissingBean(PasswordEncoder.class)
     public PasswordEncoder passwordEncoder() {
 
-        return new BCryptPasswordEncoder(
-                10
-        );
+        return new BCryptPasswordEncoder(10);
     }
 
 
@@ -403,12 +369,19 @@ public class SecurityAutoConfig {
     // JWT -> AUTHENTICATION
     // =========================================================
 
+    /**
+     bước 3
+     Trong hàm securityFilterChain(), tham số này được Spring truyền vào:
+     Converter<Jwt, ? extends AbstractAuthenticationToken>jwtAuthenticationConverter
+
+     đưa  jwt để jwtAuthenticationConverter -> trả cho spring
+     Người gọi: CLI-123
+     Quyền: ROLE_CLIENT
+     JWT đã được kiểm tra
+     */
     @Bean
-    @ConditionalOnMissingBean(
-            name = "jwtAuthenticationConverter"
-    )
-    public Converter<Jwt, ? extends AbstractAuthenticationToken>
-    jwtAuthenticationConverter() {
+    @ConditionalOnMissingBean(name = "jwtAuthenticationConverter")
+    public Converter<Jwt, ? extends AbstractAuthenticationToken> jwtAuthenticationConverter() {  // chuyển thông jwt thành thông tin người gọi
 
         JwtGrantedAuthoritiesConverter scopeConverter =
                 new JwtGrantedAuthoritiesConverter();
@@ -424,16 +397,12 @@ public class SecurityAutoConfig {
             // SCOPE
             // =================================================
 
-            Collection<GrantedAuthority> scopeAuthorities =
-                    scopeConverter.convert(
-                            jwt
-                    );
+            Collection<GrantedAuthority> scopeAuthorities = scopeConverter.convert(jwt
+            );
 
             if (scopeAuthorities != null) {
 
-                authorities.addAll(
-                        scopeAuthorities
-                );
+                authorities.addAll(scopeAuthorities);
             }
 
 
@@ -441,16 +410,9 @@ public class SecurityAutoConfig {
             // ROLE
             // =================================================
 
-            Object roleClaim =
-                    jwt.getClaims()
-                            .get(
-                                    "role"
-                            );
+            Object roleClaim = jwt.getClaims().get("role");
 
-            addRoleAuthorities(
-                    authorities,
-                    roleClaim
-            );
+            addRoleAuthorities(authorities, roleClaim);
 
 
             // =================================================
@@ -460,22 +422,15 @@ public class SecurityAutoConfig {
             // sub = user id
             // =================================================
 
-            String principalName =
-                    jwt.getSubject();
+            String principalName = jwt.getSubject();
 
             if (principalName == null || principalName.isBlank()) {
 
-                throw new IllegalArgumentException(
-                        "JWT must contain sub"
-                );
+                throw new IllegalArgumentException("JWT must contain sub");
             }
 
 
-            return new JwtAuthenticationToken(
-                    jwt,
-                    authorities,
-                    principalName
-            );
+            return new JwtAuthenticationToken(jwt, authorities, principalName);
         };
     }
 

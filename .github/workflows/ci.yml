@@ -5,7 +5,7 @@ on:
     branches: [main]
 
   push:
-    branches: [main]
+    branches: [main, 'feature/**', 'codex/**']
 
   workflow_dispatch:
 
@@ -27,6 +27,8 @@ jobs:
           - user-service
           - api-gateway
           - nesus-repository
+          - identity-service
+          - product-service
         include:
           - service: nesus-repository
             wrapper: security-starter/mvnw
@@ -44,6 +46,10 @@ jobs:
           cache-dependency-path: |
             ${{ matrix.service }}/**/pom.xml
             ${{ matrix.service }}/**/maven-wrapper.properties
+
+      - name: Install shared modules for consumers
+        if: contains(fromJSON('["user-service", "identity-service", "product-service"]'), matrix.service)
+        run: bash nesus-repository/security-starter/mvnw -B -ntp -f nesus-repository/pom.xml -pl security-starter -am clean install
 
       - name: Verify ${{ matrix.service }}
         working-directory: ${{ matrix.service }}

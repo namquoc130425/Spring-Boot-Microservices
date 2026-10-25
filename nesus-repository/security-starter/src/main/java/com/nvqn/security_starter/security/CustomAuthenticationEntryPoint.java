@@ -23,11 +23,7 @@ public class CustomAuthenticationEntryPoint  implements AuthenticationEntryPoint
     private final ObjectMapper objectMapper;
 
     @Override
-    public void commence(
-            HttpServletRequest request,
-            HttpServletResponse response,
-            AuthenticationException authException
-    ) throws IOException {
+    public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authException) throws IOException {
 
         log.warn(
                 "Authentication failed | method={} | path={} | message={}",
@@ -36,27 +32,19 @@ public class CustomAuthenticationEntryPoint  implements AuthenticationEntryPoint
                 authException.getMessage()
         );
 
-        ErrorCode errorCode =
-                ErrorCode.UNAUTHENTICATED;
+        ErrorCode errorCode = ErrorCode.UNAUTHENTICATED;
 
-        response.setStatus(
-                errorCode.getStatus().value()
-        );
+        response.setStatus(errorCode.getStatus().value());
 
-        response.setContentType(
-                MediaType.APPLICATION_JSON_VALUE
-        );
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 
-        response.setCharacterEncoding(
-                "UTF-8"
-        );
+        response.setCharacterEncoding("UTF-8");
 
-        APIResponse<Object> body =
-                APIResponse.response(
-                        errorCode.getCode(),
-                        errorCode.getMessage(),
-                        null,
-                        false
+        APIResponse<Object> body = APIResponse.response(
+                errorCode.getCode(),
+                errorCode.getMessage(),
+                null,
+                false
                 );
 
         objectMapper.writeValue(

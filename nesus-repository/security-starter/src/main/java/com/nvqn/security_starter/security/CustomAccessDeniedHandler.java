@@ -21,14 +21,9 @@ public class CustomAccessDeniedHandler  implements AccessDeniedHandler {
     private final ObjectMapper objectMapper;
 
     @Override
-    public void handle(
-            HttpServletRequest request,
-            HttpServletResponse response,
-            AccessDeniedException accessDeniedException
-    ) throws IOException {
+    public void handle(HttpServletRequest request, HttpServletResponse response, AccessDeniedException accessDeniedException) throws IOException {
 
-        log.warn(
-                "Access denied | method={} | path={} | message={}",
+        log.warn("Access denied | method={} | path={} | message={}",
                 request.getMethod(),
                 request.getRequestURI(),
                 accessDeniedException.getMessage()
@@ -36,25 +31,18 @@ public class CustomAccessDeniedHandler  implements AccessDeniedHandler {
 
         ErrorCode errorCode = ErrorCode.FORBIDDEN;
 
-        response.setStatus(
-                errorCode.getStatus().value()
-        );
+        response.setStatus(errorCode.getStatus().value());
 
-        response.setContentType(
-                MediaType.APPLICATION_JSON_VALUE
-        );
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
 
-        response.setCharacterEncoding(
-                "UTF-8"
-        );
+        response.setCharacterEncoding("UTF-8");
 
-        APIResponse<Object> body =
-                APIResponse.response(
-                        errorCode.getCode(),
-                        errorCode.getMessage(),
-                        null,
-                        false
-                );
+        APIResponse<Object> body = APIResponse.response(
+                errorCode.getCode(),
+                errorCode.getMessage(),
+                null,
+                false
+        );
 
         objectMapper.writeValue(
                 response.getOutputStream(),

@@ -8,6 +8,7 @@ import com.nimbusds.jwt.SignedJWT;
 import com.nvqn.security_starter.autoConfig.SecurityAutoConfig;
 import com.nvqn.security_starter.security.CustomAccessDeniedHandler;
 import jakarta.servlet.Filter;
+import jakarta.servlet.DispatcherType;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
@@ -78,6 +79,12 @@ class SecurityStarterApplicationTests {
                     .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
 
             mvc.perform(get("/public")).andExpect(status().isOk());
+            mvc.perform(get("/error-probe")).andExpect(status().isUnauthorized());
+            mvc.perform(get("/error-probe").with(request -> {
+                        request.setDispatcherType(DispatcherType.ERROR);
+                        return request;
+                    }))
+                    .andExpect(status().isOk()).andExpect(content().string("handled"));
             var unauthenticated = mvc.perform(get("/private")).andExpect(status().isUnauthorized())
                     .andReturn().getResponse();
             ObjectMapper mapper = context.getBean(ObjectMapper.class);
@@ -128,6 +135,11 @@ class SecurityStarterApplicationTests {
 
     @RestController
     static class TestController {
+        @GetMapping("/error-probe")
+        String errorProbe() {
+            return "handled";
+        }
+
         @GetMapping("/public")
         String publicEndpoint() {
             return "public";
